@@ -258,3 +258,21 @@ function pointToSegmentDistance(p: Point, a: Point, b: Point): number {
   const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq));
   return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
 }
+
+export function hitTestWall(
+  wall: { start: Point; end: Point },
+  point: Point,
+  tolerance = 10
+): boolean {
+  return pointToSegmentDistance(point, wall.start, wall.end) < tolerance;
+}
+
+export function hitTestRoom(
+  room: { x: number; y: number; width: number; height: number },
+  point: Point
+): boolean {
+  return (
+    point.x >= room.x && point.x <= room.x + room.width &&
+    point.y >= room.y && point.y <= room.y + room.height
+  );
+}

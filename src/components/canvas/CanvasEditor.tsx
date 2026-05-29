@@ -6,7 +6,7 @@ import { useSimStore } from '../../store/simulationStore';
 import {
   drawGrid, drawPipe,
   screenToWorld, worldToScreen, snapToGrid,
-  hitTestPipe, hitTestSymbol, PIPE_STYLES,
+  hitTestPipe, hitTestSymbol, hitTestWall, hitTestRoom, PIPE_STYLES,
 } from '../../utils/canvasRenderer';
 import { useFloorPlanRenderer } from './FloorPlanLayer';
 import FloorPlanInteractionLayer from './FloorPlanLayer';
@@ -39,7 +39,7 @@ export default function CanvasEditor({ floorTool }: Props) {
   const removeSym = useProjectStore(s => s.removeSymbol);
   const updateSym = useProjectStore(s => s.updateSymbol);
   const result = useResultsStore(s => s.result);
-  const { floorPlan, addWall, addRoom } = useSimStore();
+  const { floorPlan, addWall, addRoom, removeWall, removeRoom, updateWall, updateRoom } = useSimStore();
 
   const getWorldPoint = useCallback((sx: number, sy: number): Point => {
     const { viewport, snapToGrid: snap, gridSize } = canvas;
@@ -71,39 +71,79 @@ export default function CanvasEditor({ floorTool }: Props) {
       floorPlan.rooms.forEach(room => {
         const tl = worldToScreen(room.x, room.y, viewport.x, viewport.y, viewport.zoom);
         const br = worldToScreen(room.x + room.width, room.y + room.height, viewport.x, viewport.y, viewport.zoom);
+        const isSelected = canvas.selectedIds.includes(room.id);
         ctx.save();
         ctx.fillStyle = room.color;
-        ctx.globalAlpha = room.opacity * 0.18;
+        ctx.globalAlpha = room.opacity * (isSelected ? 0.32 : 0.18);
         ctx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
-        ctx.globalAlpha = 0.5;
-        ctx.strokeStyle = room.color;
-        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = isSelected ? 1 : 0.5;
+        ctx.strokeStyle = isSelected ? '#00D4FF' : room.color;
+        ctx.lineWidth = isSelected ? 2.5 : 1.5;
+        if (isSelected) ctx.setLineDash([6, 3]);
         ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+        ctx.setLineDash([]);
         ctx.globalAlpha = 1;
         ctx.font = `${Math.max(9, 10 * viewport.zoom)}px 'JetBrains Mono'`;
-        ctx.fillStyle = room.color;
+        ctx.fillStyle = isSelected ? '#00D4FF' : room.color;
         ctx.fillText(room.name, tl.x + 6, tl.y + 14);
+        // Selection handles (corners)
+        if (isSelected) {
+          const w = br.x - tl.x;
+          const h = br.y - tl.y;
+          [
+            [tl.x, tl.y], [tl.x + w, tl.y],
+            [tl.x, tl.y + h], [tl.x + w, tl.y + h],
+          ].forEach(([hx, hy]) => {
+            ctx.beginPath();
+            ctx.arc(hx, hy, 4, 0, Math.PI * 2);
+            ctx.fillStyle = '#00D4FF';
+            ctx.fill();
+          });
+        }
         ctx.restore();
       });
 
       floorPlan.walls.forEach(wall => {
         const ss = worldToScreen(wall.start.x, wall.start.y, viewport.x, viewport.y, viewport.zoom);
         const es = worldToScreen(wall.end.x, wall.end.y, viewport.x, viewport.y, viewport.zoom);
+        const isSelected = canvas.selectedIds.includes(wall.id);
         ctx.save();
-        ctx.strokeStyle = '#A09070';
-        ctx.lineWidth = Math.max(3, (wall.thickness / 8) * viewport.zoom);
+        ctx.strokeStyle = isSelected ? '#00D4FF' : '#A09070';
+        ctx.lineWidth = Math.max(3, (wall.thickness / 8) * viewport.zoom) + (isSelected ? 2 : 0);
         ctx.lineCap = 'square';
         ctx.beginPath();
         ctx.moveTo(ss.x, ss.y);
         ctx.lineTo(es.x, es.y);
         ctx.stroke();
-        // Hatch
-        ctx.strokeStyle = '#705030';
-        ctx.lineWidth = 1;
-        ctx.globalAlpha = 0.5;
-        ctx.setLineDash([5, 5]);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        // Hatch (solo si no seleccionado)
+        if (!isSelected) {
+          ctx.strokeStyle = '#705030';
+          ctx.lineWidth = 1;
+          ctx.globalAlpha = 0.5;
+          ctx.setLineDash([5, 5]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        // Selection endpoints
+        if (isSelected) {
+          [wall.start, wall.end].forEach(pt => {
+            const sp = worldToScreen(pt.x, pt.y, viewport.x, viewport.y, viewport.zoom);
+            ctx.beginPath();
+            ctx.arc(sp.x, sp.y, 5, 0, Math.PI * 2);
+            ctx.fillStyle = '#00D4FF';
+            ctx.fill();
+          });
+          // glow
+          ctx.shadowColor = '#00D4FF';
+          ctx.shadowBlur = 8;
+          ctx.beginPath();
+          ctx.moveTo(ss.x, ss.y);
+          ctx.lineTo(es.x, es.y);
+          ctx.strokeStyle = '#00D4FF44';
+          ctx.lineWidth = Math.max(6, (wall.thickness / 4) * viewport.zoom);
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        }
         ctx.restore();
       });
     }
@@ -154,7 +194,7 @@ export default function CanvasEditor({ floorTool }: Props) {
       ctx.stroke();
       ctx.restore();
     }
-  }, [canvas, project, result, mousePos, isPanning, floorTool, floorPlan]);
+  }, [canvas, project, result, mousePos, isPanning, floorTool, floorPlan, canvas.selectedIds]);
 
   // Use floor plan renderer hook
   useFloorPlanRenderer(
@@ -214,7 +254,7 @@ export default function CanvasEditor({ floorTool }: Props) {
     const tool = canvas.tool;
 
     if (tool === 'select') {
-      // Check compressor double-click
+      // 1. Symbols
       for (const sym of [...project.symbols].reverse()) {
         if (hitTestSymbol(sym, wp, SYMBOL_SIZE / 2)) {
           canvas.setSelected([sym.id]);
@@ -224,10 +264,26 @@ export default function CanvasEditor({ floorTool }: Props) {
           return;
         }
       }
+      // 2. Pipes
       for (const pipe of [...project.pipes].reverse()) {
         if (hitTestPipe(pipe, wp, 8 / canvas.viewport.zoom)) {
           canvas.setSelected([pipe.id]);
           return;
+        }
+      }
+      // 3. Floor plan elements (visible only)
+      if (floorPlan.visible) {
+        for (const wall of [...floorPlan.walls].reverse()) {
+          if (hitTestWall(wall, wp, 12 / canvas.viewport.zoom)) {
+            canvas.setSelected([wall.id]);
+            return;
+          }
+        }
+        for (const room of [...floorPlan.rooms].reverse()) {
+          if (hitTestRoom(room, wp)) {
+            canvas.setSelected([room.id]);
+            return;
+          }
         }
       }
       canvas.clearSelected();
@@ -287,8 +343,16 @@ export default function CanvasEditor({ floorTool }: Props) {
       for (const sym of project.symbols) {
         if (hitTestSymbol(sym, wp, SYMBOL_SIZE / 2)) { removeSym(sym.id); return; }
       }
+      if (floorPlan.visible) {
+        for (const wall of floorPlan.walls) {
+          if (hitTestWall(wall, wp, 12 / canvas.viewport.zoom)) { removeWall(wall.id); return; }
+        }
+        for (const room of floorPlan.rooms) {
+          if (hitTestRoom(room, wp)) { removeRoom(room.id); return; }
+        }
+      }
     }
-  }, [canvas, project, getWorldPoint, addPipe, addSymbol, removeP, removeSym, floorTool]);
+  }, [canvas, project, getWorldPoint, addPipe, addSymbol, removeP, removeSym, floorTool, floorPlan, removeWall, removeRoom]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
@@ -330,6 +394,8 @@ export default function CanvasEditor({ floorTool }: Props) {
         canvas.selectedIds.forEach(id => {
           if (project.pipes.find(p => p.id === id)) removeP(id);
           if (project.symbols.find(s => s.id === id)) removeSym(id);
+          if (floorPlan.walls.find(w => w.id === id)) removeWall(id);
+          if (floorPlan.rooms.find(r => r.id === id)) removeRoom(id);
         });
         canvas.clearSelected();
       }
@@ -354,7 +420,7 @@ export default function CanvasEditor({ floorTool }: Props) {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [canvas, project.pipes, project.symbols, removeP, removeSym, updateSym]);
+  }, [canvas, project.pipes, project.symbols, removeP, removeSym, updateSym, floorPlan, removeWall, removeRoom]);
 
   const cursorStyle = isPanning ? 'grabbing' :
     isSpaceDown.current ? 'grab' :

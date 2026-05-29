@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { useCanvasStore } from '../../store/canvasStore';
 import { useProjectStore } from '../../store/projectStore';
+import { useSimStore } from '../../store/simulationStore';
 import { Plus, Trash2, X } from 'lucide-react';
 import type { PipeSegment, SymbolInstance, Consumer, Material } from '../../types';
+import type { Wall, Room } from '../../types/floorplan';
 
 const MATERIALS: { value: Material; label: string; roughness: number }[] = [
   { value: 'galvanized_steel', label: 'Acero galvanizado', roughness: 0.15 },
@@ -253,9 +255,82 @@ function SymbolProperties({ sym }: { sym: SymbolInstance }) {
   );
 }
 
+function WallProperties({ wall }: { wall: Wall }) {
+  const updateWall = useSimStore(s => s.updateWall);
+  const u = (updates: Partial<Wall>) => updateWall(wall.id, updates);
+
+  return (
+    <div className="flex flex-col gap-3 px-3 py-3 overflow-y-auto">
+      <div className="flex items-center gap-2 mb-1">
+        <div className="w-8 h-1 rounded" style={{ backgroundColor: '#A09070' }} />
+        <span className="text-xs font-mono text-white/60 uppercase">Muro / Pared</span>
+      </div>
+      <Field label="Etiqueta">
+        <TextInput value={wall.label} onChange={v => u({ label: v })} />
+      </Field>
+      <Field label="Grosor" unit="cm">
+        <NumInput value={wall.thickness} onChange={v => u({ thickness: v })} min={5} step={5} />
+      </Field>
+      <div className="text-[10px] font-mono text-white/20 mt-2">
+        <div>Inicio: ({wall.start.x.toFixed(0)}, {wall.start.y.toFixed(0)})</div>
+        <div>Fin: ({wall.end.x.toFixed(0)}, {wall.end.y.toFixed(0)})</div>
+      </div>
+    </div>
+  );
+}
+
+function RoomProperties({ room }: { room: Room }) {
+  const updateRoom = useSimStore(s => s.updateRoom);
+  const u = (updates: Partial<Room>) => updateRoom(room.id, updates);
+
+  const ROOM_COLORS = ['#4A90D9', '#E67E22', '#27AE60', '#9B59B6', '#E74C3C', '#1ABC9C'];
+
+  return (
+    <div className="flex flex-col gap-3 px-3 py-3 overflow-y-auto">
+      <div className="flex items-center gap-2 mb-1">
+        <div className="w-8 h-4 rounded border" style={{ backgroundColor: room.color + '44', borderColor: room.color }} />
+        <span className="text-xs font-mono text-white/60 uppercase">Habitación / Zona</span>
+      </div>
+      <Field label="Nombre">
+        <TextInput value={room.name} onChange={v => u({ name: v })} />
+      </Field>
+      <div className="grid grid-cols-2 gap-2 items-center">
+        <label className="text-[10px] font-mono text-white/40 uppercase tracking-wider">Color</label>
+        <div className="flex gap-1.5 flex-wrap">
+          {ROOM_COLORS.map(c => (
+            <button
+              key={c}
+              onClick={() => u({ color: c })}
+              className="w-5 h-5 rounded"
+              style={{
+                backgroundColor: c,
+                outline: room.color === c ? '2px solid #00D4FF' : 'none',
+                outlineOffset: 2,
+              }}
+            />
+          ))}
+        </div>
+      </div>
+      <Field label="Opacidad">
+        <input
+          type="range" min={0.1} max={1} step={0.05}
+          value={room.opacity}
+          onChange={e => u({ opacity: parseFloat(e.target.value) })}
+          className="w-full accent-[#00D4FF]"
+        />
+      </Field>
+      <div className="text-[10px] font-mono text-white/20 mt-1 flex flex-col gap-0.5">
+        <span>X: {room.x.toFixed(0)} Y: {room.y.toFixed(0)}</span>
+        <span>Ancho: {room.width.toFixed(0)} Alto: {room.height.toFixed(0)}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function PropertiesPanel() {
   const canvas = useCanvasStore();
   const project = useProjectStore(s => s.project);
+  const { floorPlan } = useSimStore();
   const clearSelected = useCanvasStore(s => s.clearSelected);
 
   if (canvas.selectedIds.length === 0) {
@@ -272,6 +347,8 @@ export default function PropertiesPanel() {
   const selId = canvas.selectedIds[0];
   const pipe = project.pipes.find(p => p.id === selId);
   const sym = project.symbols.find(s => s.id === selId);
+  const wall = floorPlan.walls.find(w => w.id === selId);
+  const room = floorPlan.rooms.find(r => r.id === selId);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -283,6 +360,8 @@ export default function PropertiesPanel() {
       </div>
       {pipe && <PipeProperties pipe={pipe} />}
       {sym && <SymbolProperties sym={sym} />}
+      {wall && <WallProperties wall={wall} />}
+      {room && <RoomProperties room={room} />}
     </div>
   );
 }
