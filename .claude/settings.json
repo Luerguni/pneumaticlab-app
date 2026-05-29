@@ -1,0 +1,23 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git add -A && if ! git diff --cached --quiet; then git commit -m \"auto: update from Claude [$(date '+%H:%M')]\"; git push origin main --quiet && echo '{\"systemMessage\": \"✓ Código publicado en GitHub → deploy iniciado en Cloudflare\"}' || echo '{\"systemMessage\": \"⚠ Push a GitHub falló — revisa conexión\"}'; fi",
+            "timeout": 30,
+            "statusMessage": "Publicando cambios en GitHub..."
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(npm *)",
+      "Bash(npx *)"
+    ]
+  }
+}
