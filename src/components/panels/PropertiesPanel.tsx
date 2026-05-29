@@ -206,6 +206,9 @@ function SymbolProperties({ sym }: { sym: SymbolInstance }) {
   const updateSymbol = useProjectStore(s => s.updateSymbol);
   const u = (updates: Partial<SymbolInstance>) => updateSymbol(sym.id, updates);
 
+  const isCylinder = sym.type.startsWith('cylinder_');
+  const cylinderSizeM = (sym.properties?.cylinderSizeM as number) ?? 0.05;
+
   return (
     <div className="flex flex-col gap-3 px-3 py-3 overflow-y-auto">
       <div className="text-xs font-mono text-white/60 uppercase">{sym.type.replace(/_/g, ' ')}</div>
@@ -216,6 +219,18 @@ function SymbolProperties({ sym }: { sym: SymbolInstance }) {
       <Field label="Código">
         <TextInput value={sym.code} onChange={v => u({ code: v })} />
       </Field>
+
+      {isCylinder && (
+        <Field label="Tamaño émbolo" unit="m">
+          <NumInput
+            value={cylinderSizeM}
+            onChange={v => u({ properties: { ...sym.properties, cylinderSizeM: v } })}
+            min={0.01}
+            step={0.01}
+          />
+        </Field>
+      )}
+
       <Field label="Rotación">
         <select
           value={sym.rotation}
