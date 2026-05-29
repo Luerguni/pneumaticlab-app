@@ -5,6 +5,7 @@ import { SYMBOL_COMPONENTS } from '../symbols/SymbolSVGs';
 import { worldToScreen, screenToWorld, snapToGrid } from '../../utils/canvasRenderer';
 
 const SYMBOL_SIZE = 40;
+const CYLINDER_BASE_SIZE = 30;
 
 interface Props {
   onDoubleClick?: (sym: import('../../types').SymbolInstance) => void;
@@ -16,11 +17,23 @@ export default function CanvasSymbolOverlay({ onDoubleClick }: Props = {}) {
   const setSelected = useCanvasStore(s => s.setSelected);
   const snap = useCanvasStore(s => s.snapToGrid);
   const gridSize = useCanvasStore(s => s.gridSize);
+  const scale = useCanvasStore(s => s.scale);
   const tool = useCanvasStore(s => s.tool);
   const symbols = useProjectStore(s => s.project.symbols);
   const updateSymbol = useProjectStore(s => s.updateSymbol);
   const removeSymbol = useProjectStore(s => s.removeSymbol);
   const draggingId = useRef<string | null>(null);
+
+  // Calcula el tamaño del símbolo basado en su tipo y propiedades
+  const getSymbolSize = (sym: import('../../types').SymbolInstance): number => {
+    if (sym.type.startsWith('cylinder_')) {
+      const cylinderSizeM = (sym.properties?.cylinderSizeM as number) ?? 0.05;
+      const pixelsPerMeter = gridSize / scale;
+      const variableSize = cylinderSizeM * pixelsPerMeter;
+      return Math.max(CYLINDER_BASE_SIZE, variableSize * 1.2); // 1.2x para que sea visible
+    }
+    return SYMBOL_SIZE;
+  };
 
   const toWorld = (sx: number, sy: number) => {
     let wp = screenToWorld(sx, sy, viewport.x, viewport.y, viewport.zoom);
@@ -59,7 +72,8 @@ export default function CanvasSymbolOverlay({ onDoubleClick }: Props = {}) {
     >
       {symbols.map(sym => {
         const sp = worldToScreen(sym.position.x, sym.position.y, viewport.x, viewport.y, viewport.zoom);
-        const size = SYMBOL_SIZE * viewport.zoom;
+        const baseSize = getSymbolSize(sym);
+        const size = baseSize * viewport.zoom;
         const half = size / 2;
         const isSelected = selectedIds.includes(sym.id);
         const SymComp = SYMBOL_COMPONENTS[sym.type];
